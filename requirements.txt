@@ -1,0 +1,10 @@
+Flask
+google-generativeai
+python-dotenv
+Pillow
+PyMuPDF
+python-docx
+openpyxl
+numpy
+Werkzeug
+gunicorn
