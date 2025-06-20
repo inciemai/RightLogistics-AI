@@ -217,47 +217,87 @@ def extract_images_from_pdf(file_stream):
         raise Exception(f"Failed to extract images from PDF: {str(e)}")
 
 def extract_text_from_pdf(file_stream):
-    """Extract text from PDF with better structure preservation"""
+    """Extract text from PDF with multiple methods and comprehensive debugging"""
     try:
         pdf_document = fitz.open(stream=file_stream.read(), filetype="pdf")
-        text_content = []
+        all_text_methods = []
         
         for page_num in range(pdf_document.page_count):
             page = pdf_document[page_num]
             
-            # Get text with layout information
-            blocks = page.get_text("dict")
-            page_text = [f"[PAGE {page_num + 1}]"]
+            # Method 1: Simple text extraction
+            simple_text = page.get_text()
             
-            for block in blocks["blocks"]:
+            # Method 2: Text with blocks
+            blocks_text = page.get_text("blocks")
+            blocks_content = []
+            for block in blocks_text:
+                if len(block) >= 5 and block[4].strip():  # block[4] contains text
+                    blocks_content.append(block[4].strip())
+            
+            # Method 3: Dictionary method with detailed structure
+            dict_text = page.get_text("dict")
+            structured_content = []
+            for block in dict_text["blocks"]:
                 if "lines" in block:
-                    block_text = []
                     for line in block["lines"]:
                         line_text = ""
                         for span in line["spans"]:
-                            text = span["text"].strip()
-                            if text:
-                                # Detect if text might be a header (larger font)
-                                if span["size"] > 12:
-                                    text = f"[LARGE TEXT] {text}"
-                                line_text += text + " "
+                            if span["text"].strip():
+                                line_text += span["text"] + " "
                         if line_text.strip():
-                            block_text.append(line_text.strip())
-                    
-                    if block_text:
-                        page_text.extend(block_text)
+                            structured_content.append(line_text.strip())
             
-            if len(page_text) > 1:
-                text_content.extend(page_text)
+            # Method 4: HTML extraction (often captures more details)
+            try:
+                html_text = page.get_text("html")
+                # Extract text from HTML tags
+                import re
+                html_clean = re.sub(r'<[^>]+>', ' ', html_text)
+                html_clean = ' '.join(html_clean.split())
+            except:
+                html_clean = ""
+            
+            # Combine all methods
+            page_content = [f"\n=== PAGE {page_num + 1} - METHOD 1 (SIMPLE) ==="]
+            page_content.append(simple_text)
+            
+            page_content.append(f"\n=== PAGE {page_num + 1} - METHOD 2 (BLOCKS) ===")
+            page_content.extend(blocks_content)
+            
+            page_content.append(f"\n=== PAGE {page_num + 1} - METHOD 3 (STRUCTURED) ===")
+            page_content.extend(structured_content)
+            
+            if html_clean:
+                page_content.append(f"\n=== PAGE {page_num + 1} - METHOD 4 (HTML) ===")
+                page_content.append(html_clean)
+            
+            all_text_methods.extend(page_content)
         
         pdf_document.close()
-        return "\n".join(text_content)
+        final_text = "\n".join(all_text_methods)
+        
+        # Enhanced logging
+        logger.info(f"PDF extraction completed. Total text length: {len(final_text)}")
+        logger.info(f"First 2000 characters of extracted text:\n{final_text[:2000]}")
+        
+        # Check if we actually extracted meaningful content
+        meaningful_words = ['invoice', 'total', 'date', 'amount', '₹', '$', '@', '+91']
+        found_keywords = [word for word in meaningful_words if word.lower() in final_text.lower()]
+        logger.info(f"Keywords found in extracted text: {found_keywords}")
+        
+        if len(final_text.strip()) < 50:
+            logger.warning("Very little text extracted from PDF - may need OCR processing")
+            
+        return final_text
+        
     except Exception as e:
         logger.error(f"Error extracting text from PDF: {str(e)}")
         raise Exception(f"Failed to extract text from PDF: {str(e)}")
 
+
 def process_file_content(file_stream, filename):
-    """Process different file types and extract content with enhancements"""
+    """Enhanced file processing with better PDF handling"""
     file_extension = filename.rsplit('.', 1)[1].lower()
     
     try:
@@ -267,16 +307,32 @@ def process_file_content(file_stream, filename):
         
         elif file_extension == 'pdf':
             file_stream.seek(0)
+            
+            # First, try to extract images for OCR
             pdf_images = extract_images_from_pdf(file_stream)
             
-            if pdf_images:
-                # Use the largest/best quality image
-                best_image = max(pdf_images, key=len)  # Largest file size often means best quality
+            # Always try text extraction first
+            file_stream.seek(0)
+            text_content = extract_text_from_pdf(file_stream)
+            
+            # Check if text extraction was successful
+            meaningful_content = len(text_content.strip()) > 100
+            has_invoice_keywords = any(keyword in text_content.lower() for keyword in ['invoice', 'total', 'amount', 'date'])
+            
+            logger.info(f"PDF text extraction - Length: {len(text_content)}, Has keywords: {has_invoice_keywords}")
+            
+            if meaningful_content and has_invoice_keywords:
+                # Use text extraction
+                return {"type": "text", "data": text_content, "extension": file_extension}
+            elif pdf_images:
+                # Fallback to OCR if text extraction failed but images exist
+                logger.info("Text extraction insufficient, falling back to OCR")
+                best_image = max(pdf_images, key=len)
                 image_data = encode_image_to_base64(best_image)
                 return {"type": "image", "data": image_data, "extension": file_extension}
             else:
-                file_stream.seek(0)
-                text_content = extract_text_from_pdf(file_stream)
+                # Use whatever text we got
+                logger.warning("Limited text extracted and no images found, proceeding with available text")
                 return {"type": "text", "data": text_content, "extension": file_extension}
         
         elif file_extension in ['doc', 'docx']:
@@ -294,16 +350,15 @@ def process_file_content(file_stream, filename):
         raise Exception(f"Error processing file: {str(e)}")
 
 def validate_and_clean_extracted_data(extracted_data):
-    """Validate and clean extracted data for better quality"""
+    """Enhanced validation and cleaning of extracted data"""
     cleaned_data = extracted_data.copy()
     
     # Clean and validate date
     if cleaned_data.get('date'):
         date_str = str(cleaned_data['date']).strip()
-        # Try to parse and reformat date for consistency
         try:
-            # Handle various date formats
-            for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%m-%d-%Y', '%d-%m-%Y']:
+            # Handle various date formats including DD/MM/YYYY
+            for fmt in ['%d/%m/%Y', '%m/%d/%Y', '%Y-%m-%d', '%d-%m-%Y', '%m-%d-%Y', '%Y/%m/%d']:
                 try:
                     parsed_date = datetime.strptime(date_str, fmt)
                     cleaned_data['date'] = parsed_date.strftime('%Y-%m-%d')
@@ -313,42 +368,58 @@ def validate_and_clean_extracted_data(extracted_data):
         except:
             pass  # Keep original if parsing fails
     
-    # Clean numeric fields
+    # Clean numeric fields and preserve currency symbols in context
     numeric_fields = ['subtotal', 'tax', 'total']
     for field in numeric_fields:
         if cleaned_data.get(field):
             value = str(cleaned_data[field])
-            # Remove currency symbols and clean numeric values
-            cleaned_value = re.sub(r'[^\d.,\-]', '', value)
-            cleaned_value = cleaned_value.replace(',', '')
+            # Extract numeric value but keep currency info
+            currency_match = re.search(r'[₹$€£¥]', value)
+            currency = currency_match.group() if currency_match else ''
+            
+            # Clean numeric value
+            numeric_value = re.sub(r'[^\d.,\-]', '', value)
+            numeric_value = numeric_value.replace(',', '')
+            
             try:
-                float(cleaned_value)
-                cleaned_data[field] = cleaned_value
+                float(numeric_value)
+                if currency:
+                    cleaned_data[field] = f"{currency}{numeric_value}"
+                else:
+                    cleaned_data[field] = numeric_value
             except ValueError:
                 pass  # Keep original if not numeric
     
-    # Clean and validate items
+    # Enhanced item cleaning
     if cleaned_data.get('items') and isinstance(cleaned_data['items'], list):
         cleaned_items = []
         for item in cleaned_data['items']:
             if isinstance(item, dict):
                 cleaned_item = {}
                 for key, value in item.items():
-                    if value and str(value).strip() and str(value).strip().lower() not in ['null', 'none', '']:
+                    if value and str(value).strip() and str(value).strip().lower() not in ['null', 'none', '', 'n/a']:
                         if key in ['quantity', 'unit_price', 'amount']:
                             # Clean numeric values in items
-                            cleaned_value = re.sub(r'[^\d.,\-]', '', str(value))
+                            str_value = str(value)
+                            currency_match = re.search(r'[₹$€£¥]', str_value)
+                            currency = currency_match.group() if currency_match else ''
+                            
+                            cleaned_value = re.sub(r'[^\d.,\-]', '', str_value)
                             cleaned_value = cleaned_value.replace(',', '')
+                            
                             try:
                                 float(cleaned_value)
-                                cleaned_item[key] = cleaned_value
+                                if currency and key in ['unit_price', 'amount']:
+                                    cleaned_item[key] = f"{currency}{cleaned_value}"
+                                else:
+                                    cleaned_item[key] = cleaned_value
                             except ValueError:
                                 cleaned_item[key] = str(value).strip()
                         else:
                             cleaned_item[key] = str(value).strip()
                 
-                # Only add item if it has meaningful content
-                if cleaned_item.get('description') or cleaned_item.get('quantity'):
+                # Add item if it has meaningful content
+                if cleaned_item.get('description') or cleaned_item.get('amount'):
                     cleaned_items.append(cleaned_item)
         
         cleaned_data['items'] = cleaned_items
@@ -356,85 +427,108 @@ def validate_and_clean_extracted_data(extracted_data):
     return cleaned_data
 
 def get_extraction_prompt(file_extension):
-    """Get enhanced extraction prompt based on file type"""
-    base_prompt = """
-    You are an expert invoice data extraction system. Extract the following information with MAXIMUM ACCURACY:
-
-    REQUIRED FIELDS:
-    1. Invoice Number (look for: Invoice #, Invoice No, Bill #, etc.)
-    2. Date (look for: Date, Invoice Date, Bill Date, etc.)
-    3. Customer Name (look for: Bill To, Customer, Client, etc.)
-    4. Customer Contact (phone/email)
-    5. Customer Address (complete address)
-    6. Items with details:
-       - Quantity (Qty, Quantity, Units)
-       - Description (Item, Product, Service, Description)
-       - Unit Price (Price, Rate, Unit Cost, Each)
-       - Amount (Total, Line Total, Subtotal per item)
-    7. Subtotal (before tax)
-    8. Tax amount (Tax, VAT, GST, etc.)
-    9. Total amount (Grand Total, Final Amount, etc.)
-
-    EXTRACTION RULES:
-    - Extract EXACT values as they appear in the document
-    - Look for currency symbols and preserve them in context
-    - For tables, identify header rows vs data rows
-    - Pay attention to formatting cues like bold text, larger fonts
-    - If multiple similar fields exist, choose the most prominent one
-    - For calculations, use the final computed values shown
-    - Preserve decimal precision as shown
-    - Handle different number formats (1,234.56 vs 1234.56)
-    """
+    """Get enhanced extraction prompt with better instructions and examples"""
     
-    if file_extension in ['xls', 'xlsx']:
+    base_prompt = """
+You are an expert invoice data extraction system. You MUST extract ALL available information from the provided invoice document.
+
+CRITICAL EXTRACTION RULES:
+1. NEVER return null for fields that have visible data in the document
+2. Look for information in ALL parts of the document - headers, body, footer, contact sections
+3. Extract EXACT values as they appear, including currency symbols and formatting
+4. Be thorough - check every line and section for relevant data
+
+REQUIRED FIELDS TO EXTRACT:
+
+1. INVOICE NUMBER: Look for patterns like "Invoice No:", "INV", "Invoice #", "Bill No", etc.
+2. DATE: Look for "Date:", "Invoice Date:", or any date in DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD format
+3. CUSTOMER NAME: Look in "INVOICE TO:", "Bill To:", "Customer:", or contact information sections
+4. CUSTOMER CONTACT: Extract phone numbers (+91, mobile) and email addresses from anywhere in document
+5. CUSTOMER ADDRESS: Complete address from "INVOICE TO:" or customer information section
+6. ITEMS/SERVICES: Look for:
+   - Description of services/products
+   - Quantities (if applicable, otherwise use "1")
+   - Unit prices or total amounts
+   - Line items in tables or lists
+
+7. FINANCIAL TOTALS:
+   - Subtotal (amount before tax)
+   - Tax amount (GST, VAT, Tax, etc.)
+   - Total amount (final payable amount)
+
+SEARCH STRATEGY:
+- Scan the ENTIRE document systematically
+- Check headers, footers, and all text sections
+- Look for currency symbols (₹, $, etc.) to identify amounts
+- Phone numbers often start with +91 (India), look for mobile/contact info
+- Email addresses contain @ symbol
+- Addresses typically have city, state, postal codes
+
+AMOUNT EXTRACTION:
+- Always extract the numerical value with currency symbol if present
+- For single-item invoices, use the total amount as both unit price and amount
+- If no separate tax is shown, tax can be null but subtotal and total should be extracted
+"""
+
+    if file_extension == 'pdf':
         specific_instructions = """
-        EXCEL-SPECIFIC INSTRUCTIONS:
-        - Extract values from cells, not formulas
-        - Look for [HEADER ROW] and [DATA ROW] markers
-        - For formula cells showing "=formula[=result]", use the result value
-        - Pay attention to sheet structure and table layout
-        - Handle merged cells appropriately
-        - Identify the main invoice data vs other sheets
-        """
+PDF-SPECIFIC INSTRUCTIONS:
+- The document contains both simple text and structured text
+- Look in BOTH "SIMPLE TEXT:" and "STRUCTURED TEXT:" sections
+- Headers are marked with [HEADER] and [SUBHEADER]
+- Pay attention to layout and positioning
+- Contact information might be in separate sections
+- Tables might be represented as aligned text
+"""
+    elif file_extension in ['xls', 'xlsx']:
+        specific_instructions = """
+EXCEL-SPECIFIC INSTRUCTIONS:
+- Look for [HEADER ROW] and [DATA ROW] markers
+- Extract values from formula results [=value]
+- Handle multiple sheets if present
+- Table structure is clearly marked
+"""
     else:
         specific_instructions = """
-        DOCUMENT-SPECIFIC INSTRUCTIONS:
-        - For images: Focus on text regions, handle various fonts and sizes
-        - For PDFs: Use structural markers like [LARGE TEXT] for headers
-        - For Word docs: Use [HEADER] and [TABLE] markers for structure
-        - Look for visual cues like borders, spacing, alignment
-        - Handle multi-column layouts appropriately
-        """
-    
-    json_format = """
-    FORMAT RESPONSE AS VALID JSON:
-    {
-        "invoice_number": "extracted_value_or_null",
-        "date": "extracted_value_or_null",
-        "customer_name": "extracted_value_or_null",
-        "customer_contact": "extracted_value_or_null",
-        "customer_address": "extracted_value_or_null",
-        "items": [
-            {
-                "quantity": "extracted_value_or_null",
-                "description": "extracted_value_or_null",
-                "unit_price": "extracted_value_or_null",
-                "amount": "extracted_value_or_null"
-            }
-        ],
-        "subtotal": "extracted_value_or_null",
-        "tax": "extracted_value_or_null",
-        "total": "extracted_value_or_null"
-    }
+DOCUMENT-SPECIFIC INSTRUCTIONS:
+- Use structural markers like [HEADER], [TABLE START/END]
+- Handle formatted text and tables appropriately
+- Look for visual formatting cues
+"""
 
-    IMPORTANT: 
-    - Return ONLY the JSON, no other text
-    - Use null for missing fields
-    - Ensure all numbers are strings to preserve formatting
-    - Include all line items found in the items array
-    - Double-check calculations make sense
-    """
-    
+    json_format = """
+RESPONSE FORMAT - Return ONLY valid JSON:
+{
+    "invoice_number": "extracted_invoice_number_or_null",
+    "date": "extracted_date_or_null", 
+    "customer_name": "extracted_customer_name_or_null",
+    "customer_contact": "extracted_phone_and_email_or_null",
+    "customer_address": "complete_extracted_address_or_null",
+    "items": [
+        {
+            "quantity": "1_or_extracted_quantity",
+            "description": "extracted_service_or_product_description",
+            "unit_price": "extracted_price_or_amount",
+            "amount": "extracted_total_amount_for_item"
+        }
+    ],
+    "subtotal": "extracted_subtotal_or_null",
+    "tax": "extracted_tax_amount_or_null", 
+    "total": "extracted_total_amount"
+}
+
+VALIDATION CHECKLIST before responding:
+✓ Did I check ALL text sections for customer information?
+✓ Did I find the invoice number and date?
+✓ Did I extract the service/product description?
+✓ Did I find contact information (phone/email)?
+✓ Did I extract the complete address?
+✓ Did I identify all monetary amounts?
+✓ Are there any fields I marked as null that actually have data?
+
+CRITICAL: If you see ANY data in the document, you MUST extract it. Do NOT return null for visible information.
+"""
+
     return base_prompt + specific_instructions + json_format
 
 def calculate_item_amounts_excel_only(items, file_extension):
@@ -553,55 +647,92 @@ def calculate_totals_excel_only(items, extracted_data, file_extension):
         }
 
 def extract_invoice_data_with_gemini(content_data):
-    """Use Google Gemini AI to extract invoice data with enhanced prompting"""
+    """Use Google Gemini AI to extract invoice data with enhanced prompting and debugging"""
     try:
         file_extension = content_data.get('extension', 'unknown')
         prompt = get_extraction_prompt(file_extension)
         
+        logger.info(f"Processing {file_extension} file with Gemini AI")
+        
         if content_data["type"] == "image":
-            response = model.generate_content([prompt, {"mime_type": "image/png", "data": content_data["data"]}])
+            # For images, use enhanced prompt
+            image_prompt = prompt + "\n\nANALYZE THIS INVOICE IMAGE CAREFULLY. Extract ALL visible text and data."
+            response = model.generate_content([image_prompt, {"mime_type": "image/png", "data": content_data["data"]}])
         elif content_data["type"] == "text":
-            full_prompt = f"{prompt}\n\nDocument content:\n{content_data['data']}"
+            # Log the text content for debugging
+            text_content = content_data['data']
+            logger.info(f"Text content length: {len(text_content)}")
+            logger.info(f"Text preview: {text_content[:500]}...")
+            
+            full_prompt = f"""{prompt}
+
+DOCUMENT CONTENT TO ANALYZE:
+{text_content}
+
+IMPORTANT: The above document content contains an invoice. Extract ALL the information you can see. Do not return null for any field that has visible data."""
+            
             response = model.generate_content(full_prompt)
         else:
             raise Exception("Invalid content type")
         
         response_text = response.text
-        logger.info(f"Raw AI response: {response_text[:500]}...")  # Log first 500 chars
+        logger.info(f"AI Response length: {len(response_text)}")
+        logger.info(f"AI Response preview: {response_text[:300]}...")
         
-        # Extract JSON from response with better parsing
-        json_match = re.search(r'({[\s\S]*})', response_text)
+        # Clean and extract JSON from response
+        json_str = response_text.strip()
+        
+        # Remove markdown code blocks if present
+        if json_str.startswith('```json'):
+            json_str = json_str.replace('```json', '').replace('```', '').strip()
+        elif json_str.startswith('```'):
+            json_str = json_str.replace('```', '').strip()
+        
+        # Try to find JSON in the response
+        json_match = re.search(r'(\{[\s\S]*\})', json_str)
         if json_match:
             json_str = json_match.group(1)
-            json_str = json_str.replace('```json', '').replace('```', '').strip()
+        
+        try:
+            extracted_data = json.loads(json_str)
+            logger.info(f"Successfully parsed JSON: {extracted_data}")
+            
+            # Validate and clean the data
+            extracted_data = validate_and_clean_extracted_data(extracted_data)
+            
+            # Post-process calculations only for Excel files
+            if file_extension in ['xls', 'xlsx'] and 'items' in extracted_data and extracted_data['items']:
+                calculated_items = calculate_item_amounts_excel_only(extracted_data['items'], file_extension)
+                extracted_data['items'] = calculated_items
+                
+                calculated_totals = calculate_totals_excel_only(calculated_items, extracted_data, file_extension)
+                extracted_data.update(calculated_totals)
+            
+            extracted_data['file_extension'] = file_extension
+            
+            # Log final extracted data
+            logger.info(f"Final extracted data: {extracted_data}")
+            
+            return extracted_data
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error: {e}")
+            logger.error(f"Problematic JSON string: {json_str}")
+            
+            # Try to fix common JSON issues
+            fixed_json = json_str.replace("'", '"').replace('True', 'true').replace('False', 'false').replace('None', 'null')
             
             try:
-                extracted_data = json.loads(json_str)
-                
-                # Validate and clean the data
-                extracted_data = validate_and_clean_extracted_data(extracted_data)
-                
-                # Post-process ONLY for Excel files
-                if 'items' in extracted_data and extracted_data['items']:
-                    calculated_items = calculate_item_amounts_excel_only(extracted_data['items'], file_extension)
-                    extracted_data['items'] = calculated_items
-                    
-                    calculated_totals = calculate_totals_excel_only(calculated_items, extracted_data, file_extension)
-                    extracted_data.update(calculated_totals)
-                
-                extracted_data['file_extension'] = file_extension
-                
+                extracted_data = json.loads(fixed_json)
+                logger.info("Successfully parsed fixed JSON")
                 return extracted_data
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON parsing error: {e}")
-                logger.error(f"Problematic JSON: {json_str}")
-                raise Exception("Failed to parse extracted data as JSON")
-        else:
-            logger.error(f"No JSON found in response: {response_text}")
-            raise Exception("No structured data found in the AI response")
-    
+            except:
+                raise Exception(f"Failed to parse AI response as JSON. Response was: {response_text[:500]}...")
+                
     except Exception as e:
-        logger.error(f"Error in Gemini API: {str(e)}")
+        logger.error(f"Error in Gemini API processing: {str(e)}")
+        logger.error(f"Content data type: {content_data.get('type')}")
+        logger.error(f"File extension: {content_data.get('extension')}")
         raise Exception(f"AI processing error: {str(e)}")
 
 def create_api_response(status, message, data=None):
