@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Processing Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1><i class="fas fa-envelope-open-text"></i> Email Processor</h1>
+                <div class="status-indicator" id="statusIndicator">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Connecting...</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Control Panel -->
+            <section class="card control-panel">
+                <h2><i class="fas fa-cogs"></i> Control Panel</h2>
+                <div class="controls">
+                    <button id="processNowBtn" class="btn btn-primary">
+                        <i class="fas fa-play"></i> Process Emails Now
+                    </button>
+                    <button id="refreshStatsBtn" class="btn btn-secondary">
+                        <i class="fas fa-sync-alt"></i> Refresh Stats
+                    </button>
+                    <button id="viewResultsBtn" class="btn btn-info">
+                        <i class="fas fa-chart-bar"></i> View Results
+                    </button>
+                </div>
+            </section>
+
+            <!-- Statistics -->
+            <section class="card stats-panel">
+                <h2><i class="fas fa-chart-line"></i> Processing Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value" id="totalProcessed">-</div>
+                        <div class="stat-label">Total Processed</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="successfulProcessed">-</div>
+                        <div class="stat-label">Successful</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="failedProcessed">-</div>
+                        <div class="stat-label">Failed</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="averageConfidence">-</div>
+                        <div class="stat-label">Avg Confidence</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="lastRun">-</div>
+                        <div class="stat-label">Last Run</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value" id="nextRun">-</div>
+                        <div class="stat-label">Next Run</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Processing Status -->
+            <section class="card processing-status">
+                <h2><i class="fas fa-tasks"></i> Processing Status</h2>
+                <div id="processingInfo" class="processing-info">
+                    <div class="info-item">
+                        <span class="info-label">System Status:</span>
+                        <span id="systemStatus" class="info-value">Loading...</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Current Activity:</span>
+                        <span id="currentActivity" class="info-value">Idle</span>
+                    </div>
+                </div>
+                <div id="progressBar" class="progress-bar" style="display: none;">
+                    <div class="progress-fill"></div>
+                    <span class="progress-text">Processing...</span>
+                </div>
+            </section>
+
+            <!-- Results Panel -->
+            <section class="card results-panel" id="resultsPanel" style="display: none;">
+                <h2><i class="fas fa-file-alt"></i> Recent Results</h2>
+                <div class="results-header">
+                    <button id="closeResultsBtn" class="btn btn-small btn-danger">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                    <button id="downloadResultsBtn" class="btn btn-small btn-success">
+                        <i class="fas fa-download"></i> Download JSON
+                    </button>
+                </div>
+                <div id="resultsContent" class="results-content">
+                    <!-- Results will be populated here -->
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2024 Email Processing System | 
+               <span id="uptimeInfo">Uptime: Loading...</span> | 
+               <a href="#" id="healthCheck">Health Check</a>
+            </p>
+        </footer>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="spinner"></div>
+        <p>Processing emails...</p>
+    </div>
+
+    <!-- Notification System -->
+    <div id="notifications" class="notifications"></div>
+
+    <script src="script.js"></script>
+</body>
+</html> 
